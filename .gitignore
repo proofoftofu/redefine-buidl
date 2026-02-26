@@ -1,0 +1,31 @@
+# macOS/editor
+.DS_Store
+.idea/
+.vscode/
+
+# Root local env
+.env
+.env.local
+
+# App (Vite/React)
+app/node_modules/
+app/dist/
+app/dist-ssr/
+app/.env
+app/.env.local
+app/.vite/
+app/*.local
+
+# Noir circuit build output
+circuit/target/
+
+# Cairo/Scarb/Starknet local artifacts
+contracts/target/
+contracts/.snfoundry_cache/
+contracts/.scarb-cache/
+contracts/accounts.json
+contracts/.secrets
+
+# Python virtualenvs
+garaga-venv/
+.venv/

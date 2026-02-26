@@ -1,0 +1,11 @@
+[package]
+name = "noir_verifier_adapter"
+version = "0.1.0"
+edition = "2024_07"
+
+[dependencies]
+starknet = "2.14.0"
+
+[[target.starknet-contract]]
+casm = true
+casm-add-pythonic-hints = true

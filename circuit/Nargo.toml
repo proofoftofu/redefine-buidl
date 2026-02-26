@@ -1,0 +1,6 @@
+[package]
+name = "delegation_proof"
+type = "bin"
+authors = ["prototype"]
+
+[dependencies]

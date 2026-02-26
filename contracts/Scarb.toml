@@ -1,0 +1,2 @@
+[workspace]
+members = ["verifier", "noir_verifier_adapter", "zk_agent_auth_verifier"]
