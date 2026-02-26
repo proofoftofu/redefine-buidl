@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>zkAgentAuth Dashboard Prototype</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="scanline" aria-hidden="true"></div>
+
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark"></div>
+        <div>
+          <p class="eyebrow">Starknet Privacy Infra</p>
+          <h1>Agent Credential Terminal</h1>
+        </div>
+      </div>
+      <div class="chip">Prototype: zk-agent-auth-dashboard</div>
+    </header>
+
+    <main class="layout">
+      <section class="card card-issuer">
+        <div class="card-head">
+          <h2>Issuer Credential Vault</h2>
+          <span class="chip chip-soft">Anonymous Attributes</span>
+        </div>
+        <div id="credential-cards" class="credential-cards"></div>
+      </section>
+
+      <section class="card card-agents">
+        <div class="card-head">
+          <h2>Agent Registry</h2>
+          <button id="generate-burner" class="btn btn-primary">Generate Burner Agent</button>
+        </div>
+        <p class="mono-note">Manual registration disabled in this mode. Use burner agents only.</p>
+        <div id="agents" class="agents-list"></div>
+      </section>
+
+      <section class="card card-delegate">
+        <div class="card-head">
+          <h2>ZK Delegation Composer</h2>
+          <span class="chip chip-soft">Issuer -> Agent</span>
+        </div>
+        <form id="delegate-form" class="stack-form">
+          <label>
+            Agent
+            <select id="delegate-agent"></select>
+          </label>
+          <label>
+            Credential Card
+            <select id="credential-select"></select>
+          </label>
+          <label>
+            Scope
+            <select id="delegate-scope">
+              <option value="demo.increment">demo.increment</option>
+              <option value="vault.transfer">vault.transfer</option>
+              <option value="market.place_order">market.place_order</option>
+            </select>
+          </label>
+          <label>
+            Expiry (minutes)
+            <input id="delegate-expiry" type="number" min="1" max="240" value="30" />
+          </label>
+          <button class="btn btn-primary" type="submit">Issue Delegation + Proof Package</button>
+        </form>
+
+        <div class="proof-pack">
+          <h3>Proof Package</h3>
+          <div id="proof-pack" class="proof-pack-body"></div>
+        </div>
+      </section>
+
+      <section class="card card-flow">
+        <div class="card-head">
+          <h2>Delegation Flow</h2>
+          <span class="chip chip-soft">Quick Test</span>
+        </div>
+        <div class="steps" id="steps"></div>
+        <div class="step-actions">
+          <button id="run-protected" class="btn">Run Protected Tx</button>
+          <button id="revoke" class="btn btn-danger">Revoke</button>
+          <button id="run-again" class="btn">Run Again (Should Fail)</button>
+        </div>
+      </section>
+
+      <section class="card card-console">
+        <div class="card-head">
+          <h2>Mock Agent Runtime</h2>
+          <span class="chip chip-soft">Privacy-safe logs</span>
+        </div>
+        <div id="console" class="console"></div>
+      </section>
+    </main>
+
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
