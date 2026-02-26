@@ -5,6 +5,10 @@ import { Abi, DebugFileMap } from '@noir-lang/types';
 import { UltraHonkBackend } from '@aztec/bb.js';
 import { getZKHonkCallData, init } from 'garaga';
 import { Account, Contract, RpcProvider } from 'starknet';
+import initNoirC from '@noir-lang/noirc_abi';
+import initACVM from '@noir-lang/acvm_js';
+import acvm from '@noir-lang/acvm_js/web/acvm_js_bg.wasm?url';
+import noirc from '@noir-lang/noirc_abi/web/noirc_abi_wasm_bg.wasm?url';
 import { bytecode, abi } from './assets/circuit.json';
 import { abi as verifierAbi } from './assets/verifier.json';
 import vkUrl from './assets/vk.bin?url';
@@ -13,6 +17,7 @@ type Agent = {
   id: string;
   label: string;
   pubkey: string;
+  walletAddress: string;
 };
 
 type Credential = {
@@ -52,6 +57,10 @@ const DEFAULT_VERIFIER_ADDRESS = import.meta.env.VITE_VERIFIER_CONTRACT_ADDRESS 
 const DEFAULT_ZK_AUTH_ADDRESS = import.meta.env.VITE_ZK_AGENT_AUTH_CONTRACT_ADDRESS ?? '';
 const DEFAULT_INVOKER_ADDRESS = import.meta.env.VITE_INVOKER_ACCOUNT_ADDRESS ?? '';
 const DEFAULT_INVOKER_PRIVATE_KEY = import.meta.env.VITE_INVOKER_PRIVATE_KEY ?? '';
+const DEFAULT_FEE_TOKEN_ADDRESS =
+  import.meta.env.VITE_FEE_TOKEN_ADDRESS ??
+  '0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7';
+const DEFAULT_BURNER_FUND_WEI = import.meta.env.VITE_BURNER_FUND_WEI ?? '1000000000000000';
 
 const CREDENTIALS: Credential[] = [
   {
@@ -178,6 +187,18 @@ function hexToUint8Array(hex: string): Uint8Array {
   return u8;
 }
 
+function toUint256(value: bigint): [string, string] {
+  const lowMask = (1n << 128n) - 1n;
+  const low = value & lowMask;
+  const high = value >> 128n;
+  return [low.toString(), high.toString()];
+}
+
+function truncateMiddle(value: string, left = 12, right = 8): string {
+  if (value.length <= left + right + 3) return value;
+  return `${value.slice(0, left)}...${value.slice(-right)}`;
+}
+
 function App() {
   const [vk, setVk] = useState<Uint8Array | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -186,13 +207,21 @@ function App() {
   const [scope, setScope] = useState<string>(SCOPES[0]);
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [burnerFunding, setBurnerFunding] = useState<boolean>(false);
   const [lastDelegation, setLastDelegation] = useState<DelegationRecord | null>(null);
 
-  const [rpcUrl, setRpcUrl] = useState<string>(DEFAULT_RPC_URL);
-  const [verifierAddress, setVerifierAddress] = useState<string>(DEFAULT_VERIFIER_ADDRESS);
-  const [zkAuthAddress, setZkAuthAddress] = useState<string>(DEFAULT_ZK_AUTH_ADDRESS);
-  const [invokerAddress, setInvokerAddress] = useState<string>(DEFAULT_INVOKER_ADDRESS);
-  const [invokerPrivateKey, setInvokerPrivateKey] = useState<string>(DEFAULT_INVOKER_PRIVATE_KEY);
+  const rpcUrl = DEFAULT_RPC_URL;
+  const verifierAddress = DEFAULT_VERIFIER_ADDRESS;
+  const zkAuthAddress = DEFAULT_ZK_AUTH_ADDRESS;
+  const invokerAddress = DEFAULT_INVOKER_ADDRESS;
+  const invokerPrivateKey = DEFAULT_INVOKER_PRIVATE_KEY;
+  const feeTokenAddress = DEFAULT_FEE_TOKEN_ADDRESS;
+  const burnerFundWei = DEFAULT_BURNER_FUND_WEI;
+
+  const logEvent = (type: string, message: string) => {
+    console.log(`[${type}] ${message}`);
+    appendLog(setLogs, type, message);
+  };
 
   const selectedCredential = useMemo(
     () => CREDENTIALS.find((c) => c.id === credentialId) ?? CREDENTIALS[0],
@@ -205,29 +234,76 @@ function App() {
   );
 
   useEffect(() => {
+    const initWasm = async () => {
+      await Promise.all([initACVM(fetch(acvm)), initNoirC(fetch(noirc))]);
+      logEvent('ready', 'ACVM/Noir WASM initialized');
+    };
+
     const loadVk = async () => {
       const response = await fetch(vkUrl);
       const arrayBuffer = await response.arrayBuffer();
       setVk(new Uint8Array(arrayBuffer));
-      appendLog(setLogs, 'ready', 'verifying key loaded');
+      logEvent('ready', 'verifying key loaded');
     };
 
-    loadVk().catch((error: unknown) => {
+    Promise.all([initWasm(), loadVk()]).catch((error: unknown) => {
       const message = error instanceof Error ? error.message : String(error);
-      appendLog(setLogs, 'error', `failed to load verifying key: ${message}`);
+      logEvent('error', `startup init failed: ${message}`);
     });
   }, []);
 
-  const generateBurnerAgent = () => {
+  const generateBurnerAgent = async () => {
+    logEvent('debug', 'generateBurnerAgent requested');
+    if (agents.length > 0) {
+      logEvent('rejected', 'burner agent already exists; only one is allowed');
+      return;
+    }
+
     const pubkey = modField(BigInt(`0x${randomHex(16)}`)).toString();
+    const walletAddress = `0x${randomHex(32)}`;
     const agent: Agent = {
       id: `agent_${randomHex(4)}`,
-      label: `burner-${agents.length + 1}`,
+      label: 'burner-1',
       pubkey,
+      walletAddress,
     };
-    setAgents((prev) => [agent, ...prev]);
+    setAgents([agent]);
     setActiveAgentId(agent.id);
-    appendLog(setLogs, 'created', `burner agent generated: ${agent.label} (${agent.pubkey})`);
+    logEvent(
+      'created',
+      `burner agent generated: ${agent.label} pubkey=${agent.pubkey} wallet=${agent.walletAddress}`,
+    );
+
+    if (!invokerAddress || !invokerPrivateKey) {
+      logEvent('warn', 'invoker credentials missing; skipping burner funding');
+      return;
+    }
+
+    try {
+      setBurnerFunding(true);
+      logEvent('debug', `funding burner started from ${invokerAddress}`);
+      const provider = new RpcProvider({ nodeUrl: rpcUrl });
+      const account = new Account({
+        provider,
+        address: invokerAddress,
+        signer: invokerPrivateKey,
+      });
+      const amountWei = BigInt(burnerFundWei || '0');
+      const [low, high] = toUint256(amountWei);
+      const transferTx = await account.execute({
+        contractAddress: feeTokenAddress,
+        entrypoint: 'transfer',
+        calldata: [agent.walletAddress, low, high],
+      });
+      logEvent('debug', `burner funding tx submitted: ${transferTx.transaction_hash}`);
+      await account.waitForTransaction(transferTx.transaction_hash);
+      logEvent('executed', `burner funded: ${amountWei.toString()} wei tx=${transferTx.transaction_hash}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      logEvent('error', `burner funding failed: ${message}`);
+    } finally {
+      setBurnerFunding(false);
+    }
   };
 
   const buildPublicInputs = (agentPubkey: bigint, scopeHash: bigint, currentDay: number) => {
@@ -260,22 +336,27 @@ function App() {
   };
 
   const runProofPipeline = async () => {
+    logEvent('debug', 'runProofPipeline started');
     if (!activeAgent) {
-      appendLog(setLogs, 'rejected', 'delegate failed: generate burner agent first');
+      logEvent('rejected', 'delegate failed: generate burner agent first');
       return;
     }
     if (!vk) {
-      appendLog(setLogs, 'rejected', 'delegate failed: verifying key not loaded');
+      logEvent('rejected', 'delegate failed: verifying key not loaded');
       return;
     }
 
     setLoading(true);
-    appendLog(setLogs, 'proof', 'starting witness generation');
+    logEvent('proof', 'starting witness generation');
 
     try {
       const agentPubkey = modField(BigInt(activeAgent.pubkey));
       const scopeHash = scopeToField(scope);
       const currentDay = Math.floor(Date.now() / 86_400_000);
+      logEvent(
+        'debug',
+        `public inputs context agent=${agentPubkey.toString()} scopeHash=${scopeHash.toString()} day=${currentDay}`,
+      );
 
       const inputs = buildPublicInputs(agentPubkey, scopeHash, currentDay);
       const noirInput = {
@@ -293,17 +374,20 @@ function App() {
         nullifier: inputs.nullifier.toString(),
       };
 
-      const noir = new Noir({ bytecode, abi: abi as Abi, debug_symbols: '', file_map: {} as DebugFileMap });
-      const execResult = await noir.execute(noirInput);
-      appendLog(setLogs, 'proof', 'witness generated');
+      logEvent('debug', 'executing noir witness');
+      let noir = new Noir({ bytecode, abi: abi as Abi, debug_symbols: '', file_map: {} as DebugFileMap });
+      let execResult = await noir.execute(noirInput);
+      logEvent('proof', 'witness generated');
 
-      const backend = new UltraHonkBackend(bytecode, { threads: 2 });
-      const proof = await backend.generateProof(execResult.witness, { keccakZK: true });
-      backend.destroy();
-      appendLog(setLogs, 'proof', 'proof generated');
+      logEvent('debug', 'generating UltraHonk proof');
+      let honk = new UltraHonkBackend(bytecode, { threads: 2 });
+      let proof = await honk.generateProof(execResult.witness, { keccakZK: true });
+      honk.destroy();
+      logEvent('proof', 'proof generated');
 
+      logEvent('debug', 'initializing garaga and preparing calldata');
       await init();
-      const callData = getZKHonkCallData(
+      let callData = getZKHonkCallData(
         proof.proof,
         flattenFieldsAsArray(proof.publicInputs),
         vk,
@@ -322,11 +406,13 @@ function App() {
       };
 
       setLastDelegation(record);
-      appendLog(setLogs, 'delegated', `delegation prepared scope=${scope} nullifier=0x${inputs.nullifier.toString(16)}`);
+      logEvent('delegated', `delegation prepared scope=${scope} nullifier=0x${inputs.nullifier.toString(16)}`);
 
       const provider = new RpcProvider({ nodeUrl: rpcUrl });
+      logEvent('debug', `rpc provider ready at ${rpcUrl}`);
 
       if (zkAuthAddress) {
+        logEvent('debug', `using zkAuth contract ${zkAuthAddress}`);
         const consumeCalldata = [
           record.calldata.length.toString(),
           ...record.calldata,
@@ -350,7 +436,7 @@ function App() {
             calldata: consumeCalldata,
           });
           await account.waitForTransaction(invocation.transaction_hash);
-          appendLog(setLogs, 'executed', `verify_and_consume invoked tx=${invocation.transaction_hash}`);
+          logEvent('executed', `verify_and_consume invoked tx=${invocation.transaction_hash}`);
         } else {
           const providerLike = provider as unknown as {
             callContract: (args: {
@@ -369,12 +455,13 @@ function App() {
           if (!ok) {
             throw new Error('verify_and_consume returned false');
           }
-          appendLog(setLogs, 'executed', 'zk-agent-auth verify_and_consume passed (read-only call)');
+          logEvent('executed', 'zk-agent-auth verify_and_consume passed (read-only call)');
         }
       } else {
         if (!verifierAddress) {
           throw new Error('Missing verifier address. Set VITE_VERIFIER_CONTRACT_ADDRESS or fill UI field.');
         }
+        logEvent('debug', `using fallback verifier contract ${verifierAddress}`);
         const verifierContract = new Contract({
           abi: verifierAbi,
           address: verifierAddress,
@@ -384,39 +471,43 @@ function App() {
         if (!result.is_ok()) {
           throw new Error('Verifier rejected proof');
         }
-        appendLog(setLogs, 'executed', 'base verifier accepted proof (stateless check)');
+        logEvent('executed', 'base verifier accepted proof (stateless check)');
       }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      appendLog(setLogs, 'error', message);
+      logEvent('error', message);
     } finally {
       setLoading(false);
+      logEvent('debug', 'runProofPipeline completed');
     }
   };
 
   const runProtected = () => {
+    logEvent('debug', 'runProtected requested');
     if (!activeAgent || !lastDelegation || lastDelegation.revoked) {
-      appendLog(setLogs, 'rejected', 'execution failed: no active delegation');
+      logEvent('rejected', 'execution failed: no active delegation');
       return;
     }
-    appendLog(setLogs, 'executed', `protected tx success by ${activeAgent.label} scope=${lastDelegation.scope}`);
+    logEvent('executed', `protected tx success by ${activeAgent.label} scope=${lastDelegation.scope}`);
   };
 
   const revoke = () => {
+    logEvent('debug', 'revoke requested');
     if (!lastDelegation) {
-      appendLog(setLogs, 'rejected', 'revoke failed: no delegation');
+      logEvent('rejected', 'revoke failed: no delegation');
       return;
     }
     setLastDelegation({ ...lastDelegation, revoked: true });
-    appendLog(setLogs, 'revoked', `delegation revoked nullifier=0x${lastDelegation.nullifier.toString(16)}`);
+    logEvent('revoked', `delegation revoked nullifier=0x${lastDelegation.nullifier.toString(16)}`);
   };
 
   const runAgain = () => {
+    logEvent('debug', 'runAgain requested');
     if (!lastDelegation || lastDelegation.revoked) {
-      appendLog(setLogs, 'rejected', 'execution failed as expected: delegation revoked or missing');
+      logEvent('rejected', 'execution failed as expected: delegation revoked or missing');
       return;
     }
-    appendLog(setLogs, 'warn', 'execution unexpectedly succeeded; revoke first to test nullifier replay failure');
+    logEvent('warn', 'execution unexpectedly succeeded; revoke first to test nullifier replay failure');
   };
 
   const quickSteps: Array<[string, boolean]> = [
@@ -465,11 +556,18 @@ function App() {
         <section className="card card-agents">
           <div className="card-head">
             <h2>Agent Registry</h2>
-            <button disabled={loading} onClick={generateBurnerAgent} className="btn btn-primary" type="button">
+            <button
+              disabled={loading || burnerFunding || agents.length > 0}
+              onClick={generateBurnerAgent}
+              className="btn btn-primary"
+              type="button"
+            >
               Generate Burner Agent
             </button>
           </div>
-          <p className="mono-note">Burner agent key is used as `agent_key` public input.</p>
+          <p className="mono-note">
+            Burner agent key is used as `agent_key` public input. Only one burner agent is allowed.
+          </p>
           <div className="agents-list">
             {agents.map((agent) => {
               const isActive = agent.id === activeAgentId;
@@ -481,7 +579,8 @@ function App() {
                 >
                   <div className="agent-main">
                     <p className="agent-title">{agent.label}</p>
-                    <p className="agent-key">{agent.pubkey}</p>
+                    <p className="agent-key">pubkey: {truncateMiddle(agent.pubkey)}</p>
+                    <p className="agent-key">wallet: {truncateMiddle(agent.walletAddress)}</p>
                   </div>
                   <span className={`status ${lastDelegation?.revoked ? 'status-revoked' : 'status-active'}`}>
                     {isActive ? 'selected' : 'idle'}
@@ -592,39 +691,6 @@ function App() {
             <button id="run-again" className="btn" type="button" onClick={runAgain}>
               Run Again (Should Fail)
             </button>
-          </div>
-        </section>
-
-        <section className="card card-config">
-          <div className="card-head">
-            <h2>Chain Config</h2>
-            <span className="chip chip-soft">Devnet/Testnet</span>
-          </div>
-          <div className="stack-form">
-            <label>
-              RPC URL
-              <input value={rpcUrl} onChange={(event) => setRpcUrl(event.target.value)} type="text" />
-            </label>
-            <label>
-              Verifier contract (stateless fallback)
-              <input value={verifierAddress} onChange={(event) => setVerifierAddress(event.target.value)} type="text" />
-            </label>
-            <label>
-              ZkAgentAuthVerifier contract (recommended)
-              <input value={zkAuthAddress} onChange={(event) => setZkAuthAddress(event.target.value)} type="text" />
-            </label>
-            <label>
-              Invoker account address (optional, for real state updates)
-              <input value={invokerAddress} onChange={(event) => setInvokerAddress(event.target.value)} type="text" />
-            </label>
-            <label>
-              Invoker private key (optional, devnet only)
-              <input
-                value={invokerPrivateKey}
-                onChange={(event) => setInvokerPrivateKey(event.target.value)}
-                type="text"
-              />
-            </label>
           </div>
         </section>
 
