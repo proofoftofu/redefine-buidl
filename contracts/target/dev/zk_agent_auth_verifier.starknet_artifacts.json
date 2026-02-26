@@ -1,1 +1,0 @@
-{"version":1,"contracts":[{"id":"mloo5n02jujgi","package_name":"zk_agent_auth_verifier","contract_name":"ZkAgentAuthVerifier","module_path":"zk_agent_auth_verifier::ZkAgentAuthVerifier","artifacts":{"sierra":"zk_agent_auth_verifier_ZkAgentAuthVerifier.contract_class.json","casm":"zk_agent_auth_verifier_ZkAgentAuthVerifier.compiled_contract_class.json"}}]}

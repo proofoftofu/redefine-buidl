@@ -55,21 +55,21 @@ build-contracts:
 	cd contracts && scarb build
 
 declare-verifier:
-	cd contracts && sncast declare --contract-name UltraKeccakZKHonkVerifier
+	cd contracts && sncast declare --package verifier --contract-name UltraKeccakZKHonkVerifier
 
 deploy-verifier:
 	# Set VERIFIER_CLASS_HASH from make declare-verifier output
 	cd contracts && sncast deploy --salt 0x00 --class-hash $$VERIFIER_CLASS_HASH
 
 declare-noir-adapter:
-	cd contracts && sncast declare --contract-name NoirVerifierAdapter
+	cd contracts && sncast declare --package noir_verifier_adapter --contract-name NoirVerifierAdapter
 
 deploy-noir-adapter:
 	# Set NOIR_ADAPTER_CLASS_HASH and VERIFIER_CONTRACT_ADDRESS
 	cd contracts && sncast deploy --class-hash $$NOIR_ADAPTER_CLASS_HASH --constructor-calldata $$VERIFIER_CONTRACT_ADDRESS
 
 declare-zk-auth:
-	cd contracts && sncast declare --contract-name ZkAgentAuthVerifier
+	cd contracts && sncast declare --package zk_agent_auth_verifier --contract-name ZkAgentAuthVerifier
 
 deploy-zk-auth:
 	# Set ZK_AUTH_CLASS_HASH and NOIR_ADAPTER_CONTRACT_ADDRESS

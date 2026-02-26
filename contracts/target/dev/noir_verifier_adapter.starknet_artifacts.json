@@ -1,1 +1,0 @@
-{"version":1,"contracts":[{"id":"h7h225km00vmc","package_name":"noir_verifier_adapter","contract_name":"NoirVerifierAdapter","module_path":"noir_verifier_adapter::NoirVerifierAdapter","artifacts":{"sierra":"noir_verifier_adapter_NoirVerifierAdapter.contract_class.json","casm":"noir_verifier_adapter_NoirVerifierAdapter.compiled_contract_class.json"}}]}
