@@ -61,6 +61,7 @@ const DEFAULT_FEE_TOKEN_ADDRESS =
   import.meta.env.VITE_FEE_TOKEN_ADDRESS ??
   '0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7';
 const DEFAULT_BURNER_FUND_WEI = import.meta.env.VITE_BURNER_FUND_WEI ?? '1000000000000000';
+const DEFAULT_PROVER_THREADS = Number(import.meta.env.VITE_PROVER_THREADS ?? '1');
 
 const CREDENTIALS: Credential[] = [
   {
@@ -380,7 +381,11 @@ function App() {
       logEvent('proof', 'witness generated');
 
       logEvent('debug', 'generating UltraHonk proof');
-      let honk = new UltraHonkBackend(bytecode, { threads: 2 });
+      const proverThreads = Number.isFinite(DEFAULT_PROVER_THREADS) && DEFAULT_PROVER_THREADS > 0
+        ? Math.floor(DEFAULT_PROVER_THREADS)
+        : 1;
+      logEvent('debug', `creating UltraHonk backend threads=${proverThreads}`);
+      let honk = new UltraHonkBackend(bytecode, { threads: proverThreads });
       let proof = await honk.generateProof(execResult.witness, { keccakZK: true });
       honk.destroy();
       logEvent('proof', 'proof generated');
