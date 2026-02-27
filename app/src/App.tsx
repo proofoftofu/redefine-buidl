@@ -4,7 +4,8 @@ import { Noir } from '@noir-lang/noir_js';
 import { Abi, DebugFileMap } from '@noir-lang/types';
 import { UltraHonkBackend } from '@aztec/bb.js';
 import { getZKHonkCallData, init } from 'garaga';
-import { connect, disconnect, type StarknetWindowObject } from '@starknet-io/get-starknet';
+import { disconnect, type StarknetWindowObject } from '@starknet-io/get-starknet';
+import { getStarknet } from '@starknet-io/get-starknet-core';
 import { Contract, RpcProvider, WalletAccount } from 'starknet';
 import initNoirC from '@noir-lang/noirc_abi';
 import initACVM from '@noir-lang/acvm_js';
@@ -221,6 +222,7 @@ function App() {
   const [walletAccount, setWalletAccount] = useState<WalletAccount | null>(null);
   const [connectedWalletAddress, setConnectedWalletAddress] = useState<string>('');
   const [walletConnecting, setWalletConnecting] = useState<boolean>(false);
+  const [walletError, setWalletError] = useState<string>('');
 
   const rpcUrl = DEFAULT_RPC_URL;
   const verifierAddress = DEFAULT_VERIFIER_ADDRESS;
@@ -284,12 +286,18 @@ function App() {
 
     try {
       setWalletConnecting(true);
-      logEvent('debug', 'opening Starknet wallet connect modal');
-      const connectedWallet = await connect({
-        modalMode: 'alwaysAsk',
-        include: ['argentX'],
-        sort: ['argentX'],
-      });
+      setWalletError('');
+      const starknet = getStarknet();
+      const wallets = await starknet.getAvailableWallets({ include: ['argentX'], sort: ['argentX'] });
+      const readyWallet = wallets.find((walletObject) => walletObject.id === 'argentX');
+      if (!readyWallet) {
+        const message = 'Ready Wallet (Argent X) not found. Install/enable Argent X extension.';
+        setWalletError(message);
+        logEvent('error', message);
+        return;
+      }
+
+      const connectedWallet = await starknet.enable(readyWallet);
       if (!connectedWallet) {
         logEvent('warn', 'wallet connection cancelled');
         return;
@@ -320,6 +328,7 @@ function App() {
     setWallet(null);
     setWalletAccount(null);
     setConnectedWalletAddress('');
+    setWalletError('');
     logEvent('debug', 'wallet disconnected');
   };
 
@@ -630,6 +639,7 @@ function App() {
             )}
           </div>
         </div>
+        {walletError ? <p className="wallet-error">{walletError}</p> : null}
       </header>
 
       <main className="layout">
