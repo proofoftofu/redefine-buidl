@@ -586,21 +586,11 @@ function App() {
     logEvent('revoked', `delegation revoked nullifier=0x${lastDelegation.nullifier.toString(16)}`);
   };
 
-  const runAgain = () => {
-    logEvent('debug', 'runAgain requested');
-    if (!lastDelegation || lastDelegation.revoked) {
-      logEvent('rejected', 'execution failed as expected: delegation revoked or missing');
-      return;
-    }
-    logEvent('warn', 'execution unexpectedly succeeded; revoke first to test nullifier replay failure');
-  };
-
   const quickSteps: Array<[string, boolean]> = [
     ['Generate Burner Agent', agents.length > 0],
     ['Delegate', Boolean(lastDelegation)],
     ['Run Protected Tx', logs.some((log) => log.message.includes('protected tx success'))],
     ['Revoke', Boolean(lastDelegation?.revoked)],
-    ['Run Again (Should Fail)', logs.some((log) => log.message.includes('as expected'))],
   ];
 
   return (
@@ -611,12 +601,11 @@ function App() {
         <div className="brand">
           <div className="brand-mark" />
           <div>
-            <p className="eyebrow">Starknet Privacy Infra</p>
-            <h1>Agent Credential Terminal</h1>
+            <p className="eyebrow">Starknet AI Agent Privacy Infra</p>
+            <h1>Anonymous AI Agent Credentials</h1>
           </div>
         </div>
         <div className="topbar-actions">
-          <div className="chip">Root app (Garaga + Noir + zk-agent-auth)</div>
           <div className="wallet-controls">
             <span className="chip chip-soft">
               {wallet
@@ -646,7 +635,6 @@ function App() {
         <section className="card card-issuer">
           <div className="card-head">
             <h2>Issuer Credential Vault</h2>
-            <span className="chip chip-soft">Anonymous Attributes</span>
           </div>
           <div className="credential-cards">
             {CREDENTIALS.map((cred) => (
@@ -665,14 +653,14 @@ function App() {
         <section className="card card-agents">
           <div className="card-head">
             <h2>Agent Registry</h2>
-            <div className="step-actions">
+            <div className="agent-actions">
               <button
                 disabled={loading || burnerFunding || agents.length > 0}
                 onClick={generateBurnerAgent}
                 className="btn btn-primary"
                 type="button"
               >
-                Generate Burner Agent
+                Generate
               </button>
               <button
                 disabled={loading || burnerFunding || agents.length === 0 || !walletAccount}
@@ -680,7 +668,7 @@ function App() {
                 className="btn"
                 type="button"
               >
-                {burnerFunding ? 'Funding...' : 'Fund Burner'}
+                {burnerFunding ? 'Funding...' : 'Fund'}
               </button>
             </div>
           </div>
@@ -715,7 +703,6 @@ function App() {
         <section className="card card-delegate">
           <div className="card-head">
             <h2>ZK Delegation Composer</h2>
-            <span className="chip chip-soft">Issuer -&gt; Agent</span>
           </div>
           <div className="stack-form">
             <label>
@@ -723,7 +710,7 @@ function App() {
               <select
                 value={activeAgentId ?? ''}
                 onChange={(event) => setActiveAgentId(event.target.value || null)}
-                disabled={loading || agents.length === 0}
+                disabled
               >
                 <option value="">Select agent</option>
                 {agents.map((agent) => (
@@ -734,8 +721,8 @@ function App() {
               </select>
             </label>
             <label>
-              Credential Card
-              <select value={credentialId} onChange={(event) => setCredentialId(event.target.value)} disabled={loading}>
+              Credential
+              <select value={credentialId} onChange={(event) => setCredentialId(event.target.value)} disabled>
                 {CREDENTIALS.map((cred) => (
                   <option key={cred.id} value={cred.id}>
                     {cred.title}
@@ -745,7 +732,7 @@ function App() {
             </label>
             <label>
               Scope
-              <select value={scope} onChange={(event) => setScope(event.target.value)} disabled={loading}>
+              <select value={scope} onChange={(event) => setScope(event.target.value)} disabled>
                 {SCOPES.map((scopeValue) => (
                   <option key={scopeValue} value={scopeValue}>
                     {scopeValue}
@@ -753,43 +740,18 @@ function App() {
                 ))}
               </select>
             </label>
-            <button
-              className="btn btn-primary"
-              type="button"
-              disabled={loading || !walletAccount}
-              onClick={runProofPipeline}
-            >
-              {loading ? 'Generating proof...' : 'Issue Delegation + Proof Package'}
-            </button>
-          </div>
-
-          <div className="proof-pack">
-            <h3>Proof Package</h3>
-            <div className="proof-pack-body">
-              <div className="proof-line">
-                <span>Credential</span>
-                <strong>{selectedCredential.title}</strong>
-              </div>
-              <div className="proof-line">
-                <span>Agent</span>
-                <strong>{activeAgent?.label ?? 'none'}</strong>
-              </div>
-              <div className="proof-line">
-                <span>Scope</span>
-                <strong>{lastDelegation?.scope ?? 'pending'}</strong>
-              </div>
-              <div className="proof-line">
-                <span>Proof</span>
-                <strong>{lastDelegation?.proofHash ?? 'not generated'}</strong>
-              </div>
-              <div className="proof-line">
-                <span>Nullifier</span>
-                <strong>{lastDelegation ? `0x${lastDelegation.nullifier.toString(16)}` : 'pending'}</strong>
-              </div>
-              <div className="proof-line">
-                <span>Delegation</span>
-                <strong>{lastDelegation ? (lastDelegation.revoked ? 'revoked' : 'active') : 'pending'}</strong>
-              </div>
+            <div className="composer-actions">
+              <button
+                className="btn btn-primary"
+                type="button"
+                disabled={loading || !walletAccount}
+                onClick={runProofPipeline}
+              >
+                {loading ? 'Generating...' : 'Issue'}
+              </button>
+              <button id="revoke" className="btn btn-danger" type="button" onClick={revoke}>
+                Revoke
+              </button>
             </div>
           </div>
         </section>
@@ -797,7 +759,6 @@ function App() {
         <section className="card card-flow">
           <div className="card-head">
             <h2>Delegation Flow</h2>
-            <span className="chip chip-soft">Quick Test</span>
           </div>
           <div className="steps">
             {quickSteps.map(([label, done]) => (
@@ -807,15 +768,9 @@ function App() {
               </div>
             ))}
           </div>
-          <div className="step-actions">
+          <div className="step-actions step-actions-stacked">
             <button id="run-protected" className="btn" type="button" onClick={runProtected}>
               Run Protected Tx
-            </button>
-            <button id="revoke" className="btn btn-danger" type="button" onClick={revoke}>
-              Revoke
-            </button>
-            <button id="run-again" className="btn" type="button" onClick={runAgain}>
-              Run Again (Should Fail)
             </button>
           </div>
         </section>
@@ -823,7 +778,6 @@ function App() {
         <section className="card card-console">
           <div className="card-head">
             <h2>Runtime Logs</h2>
-            <span className="chip chip-soft">Privacy-safe logs</span>
           </div>
           <div className="console">
             {logs.slice(-100).map((item, index) => (

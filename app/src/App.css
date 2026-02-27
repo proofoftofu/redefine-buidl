@@ -357,6 +357,25 @@ select {
   gap: 8px;
 }
 
+.step-actions-stacked {
+  display: grid;
+}
+
+.step-actions-stacked .btn {
+  width: 100%;
+}
+
+.agent-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: nowrap;
+}
+
+.composer-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .console {
   height: 280px;
   overflow: auto;
