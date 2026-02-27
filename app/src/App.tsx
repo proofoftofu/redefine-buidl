@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import './App.css';
 import { Noir } from '@noir-lang/noir_js';
 import { Abi, DebugFileMap } from '@noir-lang/types';
@@ -24,10 +24,14 @@ type Agent = {
 
 type Credential = {
   id: string;
-  title: string;
-  attrs: string[];
-  validity: string;
-  tier: string;
+  vcId: string;
+  vcType: string[];
+  issuer: string;
+  subject: string;
+  issuanceDate: string;
+  expirationDate: string;
+  proofType: string;
+  status: string;
   holderSecret: bigint;
   dobDays: number;
   expiryDay: number;
@@ -68,30 +72,42 @@ const DEFAULT_PROVER_THREADS = Number(import.meta.env.VITE_PROVER_THREADS ?? '1'
 const CREDENTIALS: Credential[] = [
   {
     id: 'cred_membership_plus',
-    title: 'Membership Credential',
-    attrs: ['membership=true', 'age>=18', 'issuer=signed'],
-    validity: 'valid until 2027-01-01',
-    tier: 'TIER-ALPHA',
+    vcId: 'urn:uuid:7f5d8ac6-5de5-4d53-94bb-45293c4d1001',
+    vcType: ['VerifiableCredential', 'MembershipCredential', 'AgeOver18Credential'],
+    issuer: 'did:web:issuer.zk-agent.example',
+    subject: 'did:key:z6Mkh5k...burner',
+    issuanceDate: '2026-01-01T00:00:00Z',
+    expirationDate: '2027-01-01T00:00:00Z',
+    proofType: 'Bls12381G2Signature2020',
+    status: 'StatusList2021Entry',
     holderSecret: 987654321n,
     dobDays: 10000,
     expiryDay: 22000,
   },
   {
     id: 'cred_trader_agent',
-    title: 'Trading Agent Pass',
-    attrs: ['membership=true', 'risk_profile=medium', 'agent_scope=market'],
-    validity: 'valid until 2026-12-31',
-    tier: 'TIER-BETA',
+    vcId: 'urn:uuid:7f5d8ac6-5de5-4d53-94bb-45293c4d1002',
+    vcType: ['VerifiableCredential', 'TradingAgentCredential'],
+    issuer: 'did:web:issuer.zk-agent.example',
+    subject: 'did:key:z6MkiA1...burner',
+    issuanceDate: '2026-02-01T00:00:00Z',
+    expirationDate: '2026-12-31T00:00:00Z',
+    proofType: 'Bls12381G2Signature2020',
+    status: 'StatusList2021Entry',
     holderSecret: 1234512345n,
     dobDays: 10240,
     expiryDay: 21900,
   },
   {
     id: 'cred_game_operator',
-    title: 'Game Operator Credential',
-    attrs: ['membership=true', 'age>=18', 'agent_scope=gamefi'],
-    validity: 'valid until 2026-10-01',
-    tier: 'TIER-GAMMA',
+    vcId: 'urn:uuid:7f5d8ac6-5de5-4d53-94bb-45293c4d1003',
+    vcType: ['VerifiableCredential', 'GameOperatorCredential', 'AgeOver18Credential'],
+    issuer: 'did:web:issuer.zk-agent.example',
+    subject: 'did:key:z6MkfW7...burner',
+    issuanceDate: '2026-01-15T00:00:00Z',
+    expirationDate: '2026-10-01T00:00:00Z',
+    proofType: 'Bls12381G2Signature2020',
+    status: 'StatusList2021Entry',
     holderSecret: 7788991122n,
     dobDays: 9800,
     expiryDay: 21400,
@@ -223,6 +239,7 @@ function App() {
   const [connectedWalletAddress, setConnectedWalletAddress] = useState<string>('');
   const [walletConnecting, setWalletConnecting] = useState<boolean>(false);
   const [walletError, setWalletError] = useState<string>('');
+  const consoleRef = useRef<HTMLDivElement | null>(null);
 
   const rpcUrl = DEFAULT_RPC_URL;
   const verifierAddress = DEFAULT_VERIFIER_ADDRESS;
@@ -280,6 +297,11 @@ function App() {
       logEvent('warn', `failed to restore burner agent: ${message}`);
     }
   }, []);
+
+  useEffect(() => {
+    if (!consoleRef.current) return;
+    consoleRef.current.scrollTop = consoleRef.current.scrollHeight;
+  }, [logs]);
 
   const connectWallet = async () => {
     if (walletConnecting) return;
@@ -639,12 +661,19 @@ function App() {
           <div className="credential-cards">
             {CREDENTIALS.map((cred) => (
               <article key={cred.id} className="credential-card">
-                <p className="credential-title">{cred.title}</p>
+                <p className="credential-title">VERIFIABLE CREDENTIAL</p>
+                <p className="credential-id">{truncateMiddle(cred.vcId, 22, 12)}</p>
                 <div className="credential-meta">
-                  <span>{cred.attrs.join(' • ')}</span>
-                  <span>{cred.validity}</span>
+                  <span>type: {cred.vcType.join(', ')}</span>
+                  <span>issuer: {cred.issuer}</span>
+                  <span>subject: {cred.subject}</span>
+                  <span>issuanceDate: {cred.issuanceDate}</span>
+                  <span>expirationDate: {cred.expirationDate}</span>
                 </div>
-                <span className="credential-tag">{cred.tier}</span>
+                <div className="credential-foot">
+                  <span className="credential-tag">{cred.proofType}</span>
+                  <span className="credential-tag">{cred.status}</span>
+                </div>
               </article>
             ))}
           </div>
@@ -725,7 +754,7 @@ function App() {
               <select value={credentialId} onChange={(event) => setCredentialId(event.target.value)} disabled>
                 {CREDENTIALS.map((cred) => (
                   <option key={cred.id} value={cred.id}>
-                    {cred.title}
+                    {cred.vcType[1] ?? cred.vcType[0]}
                   </option>
                 ))}
               </select>
@@ -779,7 +808,7 @@ function App() {
           <div className="card-head">
             <h2>Runtime Logs</h2>
           </div>
-          <div className="console">
+          <div className="console" ref={consoleRef}>
             {logs.slice(-100).map((item, index) => (
               <p key={`${item.at}-${index}`} className="log-line">
                 <strong>[{item.type}]</strong> {item.at} {item.message}
