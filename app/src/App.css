@@ -397,14 +397,28 @@ select {
 }
 
 .agent-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
-  flex-wrap: nowrap;
+  width: 100%;
+}
+
+.agent-actions .btn {
+  width: 100%;
 }
 
 .composer-actions {
   display: flex;
   gap: 8px;
+}
+
+.composer-actions .btn-primary {
+  width: 100%;
+}
+
+.agent-remove-btn {
+  margin-top: 6px;
+  width: 100%;
 }
 
 .console {
