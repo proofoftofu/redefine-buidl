@@ -284,6 +284,8 @@ function App() {
   const [walletConnecting, setWalletConnecting] = useState<boolean>(false);
   const [walletError, setWalletError] = useState<string>('');
   const consoleRef = useRef<HTMLDivElement | null>(null);
+  const [introOpen, setIntroOpen] = useState<boolean>(true);
+  const [introStep, setIntroStep] = useState<number>(0);
 
   const rpcUrl = DEFAULT_RPC_URL;
   const zkAuthAddress = DEFAULT_ZK_AUTH_ADDRESS;
@@ -724,9 +726,88 @@ function App() {
     ['Run Protected Tx', Boolean(lastDelegation?.issuedTxHash)],
   ];
 
+  const introSlides = [
+    {
+      title: 'Anonymous AI Agent Credentials',
+      visual: '🤖🔐✨',
+      body: 'Anonymous AI Agent Credentials gives your AI agents a privacy-first identity layer. Issue verifiable, selective credentials and let agents prove trust without leaking sensitive profile data.',
+    },
+    {
+      title: 'Problem',
+      visual: '🧩⚠️',
+      body: 'Today, most AI agents have no portable identity. That makes it hard to build gated smart contracts, role-based automation, and safe machine-to-machine permissions for specific agents.',
+    },
+    {
+      title: 'VC + ZK Proof',
+      visual: '🪪➕🧠',
+      body: 'We combine W3C Verifiable Credentials with zero-knowledge proofs, so an agent can prove it satisfies policy and execute transactions with an attached proof, while keeping underlying attributes private.',
+    },
+    {
+      title: 'Noir + Garaga',
+      visual: '⚙️🧾🛡️',
+      body: 'Under the hood, the circuit is authored in Noir and productionized with Garaga-generated Starknet verifier contracts, giving you a clean developer workflow from policy logic to on-chain enforcement.',
+    },
+    {
+      title: 'Bridge Opportunity',
+      visual: '🌉🪪🤖',
+      body: 'This opens a new bridge between VC-based identity wallets and autonomous AI agents, enabling reusable trust, private credentials, and composable agent authorization across apps and chains.',
+    },
+  ];
+  const isLastIntroStep = introStep === introSlides.length - 1;
+
+  const closeIntro = () => {
+    setIntroOpen(false);
+  };
+
+  const goNextIntro = () => {
+    if (isLastIntroStep) {
+      closeIntro();
+      return;
+    }
+    setIntroStep((prev) => Math.min(prev + 1, introSlides.length - 1));
+  };
+
+  const goBackIntro = () => {
+    setIntroStep((prev) => Math.max(prev - 1, 0));
+  };
+
   return (
     <>
       <div className="scanline" aria-hidden="true" />
+      {introOpen ? (
+        <div className="intro-overlay" role="dialog" aria-modal="true" aria-label="Intro">
+          <div className="intro-modal card">
+            <button className="intro-close btn" type="button" onClick={closeIntro} aria-label="Close intro">
+              Close
+            </button>
+            <p className="eyebrow">Anonymous AI Agent Credentials</p>
+            <div className="intro-hero">
+              <div className="intro-orb intro-orb-a" aria-hidden="true" />
+              <div className="intro-orb intro-orb-b" aria-hidden="true" />
+              <p className="intro-visual">{introSlides[introStep].visual}</p>
+              <h2>{introSlides[introStep].title}</h2>
+            </div>
+            <p className="intro-body">{introSlides[introStep].body}</p>
+            <div className="intro-progress" aria-hidden="true">
+              {introSlides.map((_, index) => (
+                <span
+                  key={`intro-dot-${index}`}
+                  className={`intro-dot${index === introStep ? ' active' : ''}`}
+                />
+              ))}
+            </div>
+            <p className="mono-note">{introStep + 1} / {introSlides.length}</p>
+            <div className="intro-actions">
+              <button className="btn" type="button" onClick={goBackIntro} disabled={introStep === 0}>
+                Back
+              </button>
+              <button className="btn btn-primary" type="button" onClick={goNextIntro}>
+                {isLastIntroStep ? 'Try' : 'Next'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <header className="topbar">
         <div className="brand">

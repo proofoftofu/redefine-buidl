@@ -30,6 +30,119 @@
   );
 }
 
+.intro-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(2, 6, 3, 0.82);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.intro-modal {
+  width: min(680px, 100%);
+  position: relative;
+  display: grid;
+  gap: 10px;
+  border-color: rgba(97, 255, 138, 0.45);
+  padding-top: 54px;
+  background:
+    radial-gradient(circle at 15% 20%, rgba(99, 255, 141, 0.14), transparent 38%),
+    radial-gradient(circle at 90% 80%, rgba(134, 255, 158, 0.1), transparent 45%),
+    linear-gradient(145deg, rgba(11, 23, 13, 0.97), rgba(5, 12, 8, 0.97));
+}
+
+.intro-close {
+  position: absolute;
+  top: 16px;
+  right: 14px;
+  padding: 6px 10px;
+  z-index: 2;
+}
+
+.intro-body {
+  color: var(--text);
+  line-height: 1.6;
+  font-size: 15px;
+}
+
+.intro-hero {
+  position: relative;
+  border: 1px solid rgba(97, 255, 138, 0.28);
+  border-radius: 12px;
+  padding: 14px;
+  background: linear-gradient(160deg, rgba(19, 42, 25, 0.84), rgba(9, 22, 12, 0.9));
+  overflow: hidden;
+}
+
+.intro-hero h2 {
+  position: relative;
+  z-index: 1;
+  font-size: clamp(24px, 4vw, 34px);
+  line-height: 1.1;
+}
+
+.intro-visual {
+  position: relative;
+  z-index: 1;
+  margin: 0 0 8px;
+  font-size: clamp(26px, 4vw, 34px);
+  letter-spacing: 0.1em;
+}
+
+.intro-orb {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(2px);
+}
+
+.intro-orb-a {
+  width: 160px;
+  height: 160px;
+  right: -35px;
+  top: -55px;
+  background: radial-gradient(circle, rgba(92, 255, 133, 0.34), rgba(92, 255, 133, 0.02));
+}
+
+.intro-orb-b {
+  width: 120px;
+  height: 120px;
+  left: -40px;
+  bottom: -55px;
+  background: radial-gradient(circle, rgba(185, 255, 198, 0.15), rgba(185, 255, 198, 0.02));
+}
+
+.intro-progress {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+
+.intro-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(97, 255, 138, 0.35);
+  background: rgba(7, 22, 12, 0.95);
+}
+
+.intro-dot.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(97, 255, 138, 0.56);
+}
+
+.intro-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.intro-actions .btn {
+  width: 100%;
+}
+
 .topbar {
   display: flex;
   justify-content: space-between;
