@@ -278,6 +278,16 @@ select {
   gap: 8px;
 }
 
+.agent-attrs {
+  margin-top: 8px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: rgba(3, 8, 4, 0.9);
+  padding: 9px;
+  display: grid;
+  gap: 4px;
+}
+
 .agent-item {
   border: 1px solid var(--line-soft);
   border-radius: 8px;

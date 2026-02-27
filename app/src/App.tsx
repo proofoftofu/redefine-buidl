@@ -44,6 +44,8 @@ type LogItem = {
 };
 
 type DelegationRecord = {
+  agentId: string;
+  credentialLabel: string;
   scope: string;
   scopeHash: bigint;
   currentDay: number;
@@ -51,6 +53,10 @@ type DelegationRecord = {
   issuerPubkey: bigint;
   nullifier: bigint;
   proofHash: string;
+  issued: boolean;
+  issuedAt: string | null;
+  issuedTxHash: string | null;
+  onchainNullifierUsed: boolean | null;
   revoked: boolean;
   calldata: string[];
 };
@@ -68,6 +74,7 @@ const DEFAULT_FEE_TOKEN_ADDRESS =
   '0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7';
 const DEFAULT_BURNER_FUND_WEI = import.meta.env.VITE_BURNER_FUND_WEI ?? '1000000000000000';
 const DEFAULT_PROVER_THREADS = Number(import.meta.env.VITE_PROVER_THREADS ?? '1');
+const DEFAULT_TX_EXPLORER_BASE = import.meta.env.VITE_TX_EXPLORER_BASE ?? 'https://sepolia.voyager.online/tx';
 
 const CREDENTIALS: Credential[] = [
   {
@@ -224,6 +231,13 @@ function truncateMiddle(value: string, left = 12, right = 8): string {
   return `${value.slice(0, left)}...${value.slice(-right)}`;
 }
 
+function txExplorerUrl(txHash: string): string {
+  const base = DEFAULT_TX_EXPLORER_BASE.endsWith('/')
+    ? DEFAULT_TX_EXPLORER_BASE.slice(0, -1)
+    : DEFAULT_TX_EXPLORER_BASE;
+  return `${base}/${txHash}`;
+}
+
 function App() {
   const [vk, setVk] = useState<Uint8Array | null>(null);
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -239,6 +253,7 @@ function App() {
   const [connectedWalletAddress, setConnectedWalletAddress] = useState<string>('');
   const [walletConnecting, setWalletConnecting] = useState<boolean>(false);
   const [walletError, setWalletError] = useState<string>('');
+  const [delegationSyncing, setDelegationSyncing] = useState<boolean>(false);
   const consoleRef = useRef<HTMLDivElement | null>(null);
 
   const rpcUrl = DEFAULT_RPC_URL;
@@ -256,6 +271,7 @@ function App() {
     () => CREDENTIALS.find((c) => c.id === credentialId) ?? CREDENTIALS[0],
     [credentialId],
   );
+  const selectedCredentialLabel = selectedCredential.vcType[1] ?? selectedCredential.vcType[0];
 
   const activeAgent = useMemo(
     () => agents.find((agent) => agent.id === activeAgentId) ?? null,
@@ -399,9 +415,15 @@ function App() {
         entrypoint: 'transfer',
         calldata: [activeAgent.walletAddress, low, high],
       });
-      logEvent('debug', `burner funding tx submitted: ${transferTx.transaction_hash}`);
+      logEvent(
+        'debug',
+        `burner funding tx submitted: ${transferTx.transaction_hash} ${txExplorerUrl(transferTx.transaction_hash)}`,
+      );
       await walletAccount.waitForTransaction(transferTx.transaction_hash);
-      logEvent('executed', `burner funded: ${amountWei.toString()} wei tx=${transferTx.transaction_hash}`);
+      logEvent(
+        'executed',
+        `burner funded: ${amountWei.toString()} wei tx=${transferTx.transaction_hash} ${txExplorerUrl(transferTx.transaction_hash)}`,
+      );
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       logEvent('error', `burner funding failed: ${message}`);
@@ -409,6 +431,77 @@ function App() {
       setBurnerFunding(false);
     }
   };
+
+  const checkNullifierUsedOnchain = async (
+    provider: RpcProvider,
+    contractAddress: string,
+    nullifier: bigint,
+  ): Promise<boolean> => {
+    const providerLike = provider as unknown as {
+      callContract: (args: {
+        contractAddress: string;
+        entrypoint: string;
+        calldata: string[];
+      }) => Promise<{ result?: string[] } | string[]>;
+    };
+
+    const response = await providerLike.callContract({
+      contractAddress,
+      entrypoint: 'is_nullifier_used',
+      calldata: [modStarkField(nullifier).toString()],
+    });
+    const values = Array.isArray(response) ? response : response.result ?? [];
+    if (values.length === 0) {
+      throw new Error('is_nullifier_used returned empty result');
+    }
+    return values[0] === '0x1' || values[0] === '1';
+  };
+
+  const syncDelegationFromOnchain = async () => {
+    if (!activeAgent || !zkAuthAddress) return;
+    try {
+      setDelegationSyncing(true);
+      const provider = new RpcProvider({ nodeUrl: rpcUrl });
+      const agentPubkey = modField(BigInt(activeAgent.pubkey));
+      const scopeHash = scopeToField(scope);
+      const nullifier = hash2(hash2(selectedCredential.holderSecret, scopeHash), agentPubkey);
+      const nullifierUsed = await checkNullifierUsedOnchain(provider, zkAuthAddress, nullifier);
+
+      if (nullifierUsed) {
+        setLastDelegation((prev) => ({
+          agentId: activeAgent.id,
+          credentialLabel: selectedCredentialLabel,
+          scope,
+          scopeHash,
+          currentDay: prev?.currentDay ?? Math.floor(Date.now() / 86_400_000),
+          minAgeDays: prev?.minAgeDays ?? 6570,
+          issuerPubkey: prev?.issuerPubkey ?? modField(G * 123456789n),
+          nullifier,
+          proofHash: prev?.proofHash ?? 'onchain',
+          issued: true,
+          issuedAt: prev?.issuedAt ?? null,
+          issuedTxHash: prev?.issuedTxHash ?? null,
+          onchainNullifierUsed: true,
+          revoked: prev?.revoked ?? false,
+          calldata: prev?.calldata ?? [],
+        }));
+      } else {
+        setLastDelegation((prev) => (prev?.agentId === activeAgent.id ? null : prev));
+      }
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      logEvent('warn', `on-chain delegation sync failed: ${message}`);
+    } finally {
+      setDelegationSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    syncDelegationFromOnchain().catch(() => {
+      // errors already logged
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAgentId, zkAuthAddress, credentialId, scope, rpcUrl]);
 
   const buildPublicInputs = (agentPubkey: bigint, scopeHash: bigint, currentDay: number) => {
     const minAgeDays = 6570;
@@ -506,6 +599,8 @@ function App() {
       );
 
       const record: DelegationRecord = {
+        agentId: activeAgent.id,
+        credentialLabel: selectedCredentialLabel,
         scope,
         scopeHash,
         currentDay,
@@ -513,6 +608,10 @@ function App() {
         issuerPubkey: inputs.issuerPubkey,
         nullifier: inputs.nullifier,
         revoked: false,
+        issued: false,
+        issuedAt: null,
+        issuedTxHash: null,
+        onchainNullifierUsed: null,
         proofHash: `0x${randomHex(20)}`,
         calldata: callData.slice(1).map((value) => value.toString()),
       };
@@ -536,34 +635,29 @@ function App() {
           modStarkField(record.nullifier).toString(),
         ];
 
-        if (walletAccount) {
-          const invocation = await walletAccount.execute({
-            contractAddress: zkAuthAddress,
-            entrypoint: 'verify_and_consume',
-            calldata: consumeCalldata,
-          });
-          await walletAccount.waitForTransaction(invocation.transaction_hash);
-          logEvent('executed', `verify_and_consume invoked tx=${invocation.transaction_hash}`);
-        } else {
-          const providerLike = provider as unknown as {
-            callContract: (args: {
-              contractAddress: string;
-              entrypoint: string;
-              calldata: string[];
-            }) => Promise<{ result: string[] }>;
-          };
-          const response = await providerLike.callContract({
-            contractAddress: zkAuthAddress,
-            entrypoint: 'verify_and_consume',
-            calldata: consumeCalldata,
-          });
+        const invocation = await walletAccount.execute({
+          contractAddress: zkAuthAddress,
+          entrypoint: 'verify_and_consume',
+          calldata: consumeCalldata,
+        });
+        await walletAccount.waitForTransaction(invocation.transaction_hash);
+        logEvent(
+          'executed',
+          `verify_and_consume invoked tx=${invocation.transaction_hash} ${txExplorerUrl(invocation.transaction_hash)}`,
+        );
 
-          const ok = response.result[0] === '0x1' || response.result[0] === '1';
-          if (!ok) {
-            throw new Error('verify_and_consume returned false');
-          }
-          logEvent('executed', 'zk-agent-auth verify_and_consume passed (read-only call)');
-        }
+        const nullifierUsed = await checkNullifierUsedOnchain(provider, zkAuthAddress, record.nullifier);
+        setLastDelegation({
+          ...record,
+          issued: true,
+          issuedAt: nowIso(),
+          issuedTxHash: invocation.transaction_hash,
+          onchainNullifierUsed: nullifierUsed,
+        });
+        logEvent(
+          'executed',
+          `on-chain verification state nullifier_used=${nullifierUsed ? 'true' : 'false'}`,
+        );
       } else {
         if (!verifierAddress) {
           throw new Error('Missing verifier address. Set VITE_VERIFIER_CONTRACT_ADDRESS or fill UI field.');
@@ -591,26 +685,28 @@ function App() {
 
   const runProtected = () => {
     logEvent('debug', 'runProtected requested');
-    if (!activeAgent || !lastDelegation || lastDelegation.revoked) {
+    if (!activeAgent || !lastDelegation || !lastDelegation.issued || lastDelegation.revoked) {
       logEvent('rejected', 'execution failed: no active delegation');
       return;
     }
-    logEvent('executed', `protected tx success by ${activeAgent.label} scope=${lastDelegation.scope}`);
+    logEvent('executed', `protected action simulated by ${activeAgent.label} scope=${lastDelegation.scope}`);
   };
 
   const revoke = () => {
     logEvent('debug', 'revoke requested');
-    if (!lastDelegation) {
-      logEvent('rejected', 'revoke failed: no delegation');
+    if (!lastDelegation || !lastDelegation.issued || lastDelegation.revoked) {
+      logEvent('rejected', 'revoke failed: proof is not actively issued');
       return;
     }
     setLastDelegation({ ...lastDelegation, revoked: true });
     logEvent('revoked', `delegation revoked nullifier=0x${lastDelegation.nullifier.toString(16)}`);
   };
 
+  const isIssuedAndActive = Boolean(lastDelegation?.issued && !lastDelegation?.revoked);
+
   const quickSteps: Array<[string, boolean]> = [
     ['Generate Burner Agent', agents.length > 0],
-    ['Delegate', Boolean(lastDelegation)],
+    ['Delegate', Boolean(lastDelegation?.issued)],
     ['Run Protected Tx', logs.some((log) => log.message.includes('protected tx success'))],
     ['Revoke', Boolean(lastDelegation?.revoked)],
   ];
@@ -705,6 +801,7 @@ function App() {
             Burner agent key is used as `agent_key` public input. Only one burner agent is allowed.
             {' '}
             Funding is manual via `Fund Burner`.
+            {delegationSyncing ? ' Syncing on-chain delegation...' : ''}
           </p>
           <div className="agents-list">
             {agents.map((agent) => {
@@ -727,6 +824,26 @@ function App() {
               );
             })}
           </div>
+          {activeAgent && lastDelegation && lastDelegation.agentId === activeAgent.id ? (
+            <div className="agent-attrs">
+              <p className="agent-key">credential: {lastDelegation.credentialLabel}</p>
+              <p className="agent-key">scope: {lastDelegation.scope}</p>
+              <p className="agent-key">
+                issued: {lastDelegation.issued ? 'yes' : 'no'}{lastDelegation.issuedAt ? ` @ ${lastDelegation.issuedAt}` : ''}
+              </p>
+              <p className="agent-key">
+                onchain_valid:{' '}
+                {lastDelegation.onchainNullifierUsed === null
+                  ? 'n/a'
+                  : lastDelegation.onchainNullifierUsed
+                    ? 'yes'
+                    : 'no'}
+              </p>
+              {lastDelegation.issuedTxHash ? (
+                <p className="agent-key">tx: {truncateMiddle(lastDelegation.issuedTxHash)}</p>
+              ) : null}
+            </div>
+          ) : null}
         </section>
 
         <section className="card card-delegate">
@@ -773,12 +890,18 @@ function App() {
               <button
                 className="btn btn-primary"
                 type="button"
-                disabled={loading || !walletAccount}
+                disabled={loading || !walletAccount || isIssuedAndActive}
                 onClick={runProofPipeline}
               >
                 {loading ? 'Generating...' : 'Issue'}
               </button>
-              <button id="revoke" className="btn btn-danger" type="button" onClick={revoke}>
+              <button
+                id="revoke"
+                className="btn btn-danger"
+                type="button"
+                onClick={revoke}
+                disabled={!isIssuedAndActive}
+              >
                 Revoke
               </button>
             </div>
