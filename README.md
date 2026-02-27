@@ -1,4 +1,4 @@
-# zk-agent-auth root app
+# Anonymous AI Agent Credentials - Starknet AI Agent Privacy Infra
 
 ## Live App
 
@@ -36,3 +36,9 @@ Noir is used for policy logic and private-proof constraints, Garaga is used for 
 ## Why this matters
 
 This pattern can bridge VC-based identity wallets to AI agents, enabling trusted machine identities that are privacy-preserving, verifiable, and reusable across on-chain applications.
+
+## On-chain Proof
+
+Sample Tx in the demo
+
+https://sepolia.voyager.online/tx/0x2e561f25e37ac2764a562e809306c64ade0e685b62e157398e45d519bc86350
