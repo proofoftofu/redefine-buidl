@@ -73,8 +73,8 @@ Set:
 - `VITE_STARKNET_RPC_URL`
 - `VITE_VERIFIER_CONTRACT_ADDRESS` (fallback stateless verifier)
 - `VITE_ZK_AGENT_AUTH_CONTRACT_ADDRESS` (recommended app contract)
-- `VITE_INVOKER_ACCOUNT_ADDRESS` (optional; required for real nullifier consumption)
-- `VITE_INVOKER_PRIVATE_KEY` (optional; devnet key for invoker account)
+- `VITE_FEE_TOKEN_ADDRESS` (ERC20 token used to fund burner account)
+- `VITE_BURNER_FUND_WEI` (funding amount sent from connected wallet)
 
 7. Run frontend:
 ```sh
@@ -89,4 +89,5 @@ Open `http://localhost:5173`.
 - `verify_and_consume` enforces `current_day == block_day`, so run proof generation and verification on the same day.
 - The frontend computes valid demo signatures and nullifiers matching the circuit hash logic.
 - If `VITE_ZK_AGENT_AUTH_CONTRACT_ADDRESS` is empty, the app falls back to stateless verification with `UltraKeccakZKHonkVerifier`.
-- If invoker credentials are set, `verify_and_consume` is sent as an onchain transaction (stateful nullifier write). Without invoker credentials, the app uses read-only `call` for verification only.
+- Connect a Starknet wallet in the UI to send onchain transactions (`transfer`, `verify_and_consume`).
+- Without a connected wallet, the app uses read-only `call` for verification only.

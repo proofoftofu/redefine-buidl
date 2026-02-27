@@ -4,7 +4,8 @@ import { Noir } from '@noir-lang/noir_js';
 import { Abi, DebugFileMap } from '@noir-lang/types';
 import { UltraHonkBackend } from '@aztec/bb.js';
 import { getZKHonkCallData, init } from 'garaga';
-import { Account, Contract, RpcProvider } from 'starknet';
+import { connect, disconnect, type StarknetWindowObject } from '@starknet-io/get-starknet';
+import { Contract, RpcProvider, WalletAccount } from 'starknet';
 import initNoirC from '@noir-lang/noirc_abi';
 import initACVM from '@noir-lang/acvm_js';
 import acvm from '@noir-lang/acvm_js/web/acvm_js_bg.wasm?url';
@@ -51,12 +52,12 @@ type DelegationRecord = {
 
 const FIELD_MODULUS =
   21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+const STARK_FIELD_MODULUS =
+  3618502788666131213697322783095070105623107215331596699973092056135872020481n;
 const G = 7n;
 const DEFAULT_RPC_URL = import.meta.env.VITE_STARKNET_RPC_URL ?? 'http://127.0.0.1:5050/rpc';
 const DEFAULT_VERIFIER_ADDRESS = import.meta.env.VITE_VERIFIER_CONTRACT_ADDRESS ?? '';
 const DEFAULT_ZK_AUTH_ADDRESS = import.meta.env.VITE_ZK_AGENT_AUTH_CONTRACT_ADDRESS ?? '';
-const DEFAULT_INVOKER_ADDRESS = import.meta.env.VITE_INVOKER_ACCOUNT_ADDRESS ?? '';
-const DEFAULT_INVOKER_PRIVATE_KEY = import.meta.env.VITE_INVOKER_PRIVATE_KEY ?? '';
 const DEFAULT_FEE_TOKEN_ADDRESS =
   import.meta.env.VITE_FEE_TOKEN_ADDRESS ??
   '0x049d36570d4e46f48e99674bd3fcc84644ddd6b96f7c741b1562b82f9e004dc7';
@@ -97,6 +98,7 @@ const CREDENTIALS: Credential[] = [
 ];
 
 const SCOPES = ['demo.increment', 'vault.transfer', 'market.place_order'];
+const BURNER_STORAGE_KEY = 'zk_agent_auth_burner_agent_v1';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -117,6 +119,11 @@ function randomHex(bytes = 8): string {
 function modField(value: bigint): bigint {
   const reduced = value % FIELD_MODULUS;
   return reduced >= 0n ? reduced : reduced + FIELD_MODULUS;
+}
+
+function modStarkField(value: bigint): bigint {
+  const reduced = value % STARK_FIELD_MODULUS;
+  return reduced >= 0n ? reduced : reduced + STARK_FIELD_MODULUS;
 }
 
 function pow7(x: bigint): bigint {
@@ -210,12 +217,14 @@ function App() {
   const [loading, setLoading] = useState<boolean>(false);
   const [burnerFunding, setBurnerFunding] = useState<boolean>(false);
   const [lastDelegation, setLastDelegation] = useState<DelegationRecord | null>(null);
+  const [wallet, setWallet] = useState<StarknetWindowObject | null>(null);
+  const [walletAccount, setWalletAccount] = useState<WalletAccount | null>(null);
+  const [connectedWalletAddress, setConnectedWalletAddress] = useState<string>('');
+  const [walletConnecting, setWalletConnecting] = useState<boolean>(false);
 
   const rpcUrl = DEFAULT_RPC_URL;
   const verifierAddress = DEFAULT_VERIFIER_ADDRESS;
   const zkAuthAddress = DEFAULT_ZK_AUTH_ADDRESS;
-  const invokerAddress = DEFAULT_INVOKER_ADDRESS;
-  const invokerPrivateKey = DEFAULT_INVOKER_PRIVATE_KEY;
   const feeTokenAddress = DEFAULT_FEE_TOKEN_ADDRESS;
   const burnerFundWei = DEFAULT_BURNER_FUND_WEI;
 
@@ -253,6 +262,67 @@ function App() {
     });
   }, []);
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(BURNER_STORAGE_KEY);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw) as { agent?: Agent; activeAgentId?: string | null };
+      if (!parsed.agent) return;
+
+      setAgents([parsed.agent]);
+      setActiveAgentId(parsed.activeAgentId ?? parsed.agent.id);
+      logEvent('ready', 'restored burner agent from local storage');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      logEvent('warn', `failed to restore burner agent: ${message}`);
+    }
+  }, []);
+
+  const connectWallet = async () => {
+    if (walletConnecting) return;
+
+    try {
+      setWalletConnecting(true);
+      logEvent('debug', 'opening Starknet wallet connect modal');
+      const connectedWallet = await connect({
+        modalMode: 'alwaysAsk',
+        include: ['argentX'],
+        sort: ['argentX'],
+      });
+      if (!connectedWallet) {
+        logEvent('warn', 'wallet connection cancelled');
+        return;
+      }
+
+      const provider = new RpcProvider({ nodeUrl: rpcUrl });
+      const account = await WalletAccount.connect(provider, connectedWallet);
+      setWallet(connectedWallet);
+      setWalletAccount(account);
+      setConnectedWalletAddress(account.address);
+      logEvent('executed', `wallet connected: ${account.address}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      logEvent('error', `wallet connection failed: ${message}`);
+    } finally {
+      setWalletConnecting(false);
+    }
+  };
+
+  const disconnectWallet = async () => {
+    try {
+      await disconnect({ clearLastWallet: true });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      logEvent('warn', `wallet disconnect warning: ${message}`);
+    }
+
+    setWallet(null);
+    setWalletAccount(null);
+    setConnectedWalletAddress('');
+    logEvent('debug', 'wallet disconnected');
+  };
+
   const generateBurnerAgent = async () => {
     logEvent('debug', 'generateBurnerAgent requested');
     if (agents.length > 0) {
@@ -261,7 +331,8 @@ function App() {
     }
 
     const pubkey = modField(BigInt(`0x${randomHex(16)}`)).toString();
-    const walletAddress = `0x${randomHex(32)}`;
+    // Starknet ContractAddress is a felt; keep generated demo address within felt range.
+    const walletAddress = `0x${randomHex(31)}`;
     const agent: Agent = {
       id: `agent_${randomHex(4)}`,
       label: 'burner-1',
@@ -270,34 +341,35 @@ function App() {
     };
     setAgents([agent]);
     setActiveAgentId(agent.id);
+    localStorage.setItem(BURNER_STORAGE_KEY, JSON.stringify({ agent, activeAgentId: agent.id }));
     logEvent(
       'created',
       `burner agent generated: ${agent.label} pubkey=${agent.pubkey} wallet=${agent.walletAddress}`,
     );
+  };
 
-    if (!invokerAddress || !invokerPrivateKey) {
-      logEvent('warn', 'invoker credentials missing; skipping burner funding');
+  const fundActiveBurnerAgent = async () => {
+    if (!activeAgent) {
+      logEvent('rejected', 'funding failed: no active burner agent');
+      return;
+    }
+    if (!walletAccount) {
+      logEvent('rejected', 'funding failed: connect wallet first');
       return;
     }
 
     try {
       setBurnerFunding(true);
-      logEvent('debug', `funding burner started from ${invokerAddress}`);
-      const provider = new RpcProvider({ nodeUrl: rpcUrl });
-      const account = new Account({
-        provider,
-        address: invokerAddress,
-        signer: invokerPrivateKey,
-      });
+      logEvent('debug', `funding burner started from ${walletAccount.address}`);
       const amountWei = BigInt(burnerFundWei || '0');
       const [low, high] = toUint256(amountWei);
-      const transferTx = await account.execute({
+      const transferTx = await walletAccount.execute({
         contractAddress: feeTokenAddress,
         entrypoint: 'transfer',
-        calldata: [agent.walletAddress, low, high],
+        calldata: [activeAgent.walletAddress, low, high],
       });
       logEvent('debug', `burner funding tx submitted: ${transferTx.transaction_hash}`);
-      await account.waitForTransaction(transferTx.transaction_hash);
+      await walletAccount.waitForTransaction(transferTx.transaction_hash);
       logEvent('executed', `burner funded: ${amountWei.toString()} wei tx=${transferTx.transaction_hash}`);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
@@ -338,6 +410,10 @@ function App() {
 
   const runProofPipeline = async () => {
     logEvent('debug', 'runProofPipeline started');
+    if (!walletAccount) {
+      logEvent('rejected', 'delegate failed: connect wallet first');
+      return;
+    }
     if (!activeAgent) {
       logEvent('rejected', 'delegate failed: generate burner agent first');
       return;
@@ -421,26 +497,21 @@ function App() {
         const consumeCalldata = [
           record.calldata.length.toString(),
           ...record.calldata,
-          record.issuerPubkey.toString(),
+          modStarkField(record.issuerPubkey).toString(),
           record.currentDay.toString(),
           record.minAgeDays.toString(),
-          agentPubkey.toString(),
-          record.scopeHash.toString(),
-          record.nullifier.toString(),
+          modStarkField(agentPubkey).toString(),
+          modStarkField(record.scopeHash).toString(),
+          modStarkField(record.nullifier).toString(),
         ];
 
-        if (invokerAddress && invokerPrivateKey) {
-          const account = new Account({
-            provider,
-            address: invokerAddress,
-            signer: invokerPrivateKey,
-          });
-          const invocation = await account.execute({
+        if (walletAccount) {
+          const invocation = await walletAccount.execute({
             contractAddress: zkAuthAddress,
             entrypoint: 'verify_and_consume',
             calldata: consumeCalldata,
           });
-          await account.waitForTransaction(invocation.transaction_hash);
+          await walletAccount.waitForTransaction(invocation.transaction_hash);
           logEvent('executed', `verify_and_consume invoked tx=${invocation.transaction_hash}`);
         } else {
           const providerLike = provider as unknown as {
@@ -535,7 +606,30 @@ function App() {
             <h1>Agent Credential Terminal</h1>
           </div>
         </div>
-        <div className="chip">Root app (Garaga + Noir + zk-agent-auth)</div>
+        <div className="topbar-actions">
+          <div className="chip">Root app (Garaga + Noir + zk-agent-auth)</div>
+          <div className="wallet-controls">
+            <span className="chip chip-soft">
+              {wallet
+                ? `wallet ${truncateMiddle(connectedWalletAddress, 10, 6)}`
+                : 'wallet disconnected'}
+            </span>
+            {wallet ? (
+              <button className="btn" type="button" onClick={disconnectWallet} disabled={loading || burnerFunding}>
+                Disconnect
+              </button>
+            ) : (
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={connectWallet}
+                disabled={walletConnecting || loading || burnerFunding}
+              >
+                {walletConnecting ? 'Connecting...' : 'Connect Ready Wallet'}
+              </button>
+            )}
+          </div>
+        </div>
       </header>
 
       <main className="layout">
@@ -561,17 +655,29 @@ function App() {
         <section className="card card-agents">
           <div className="card-head">
             <h2>Agent Registry</h2>
-            <button
-              disabled={loading || burnerFunding || agents.length > 0}
-              onClick={generateBurnerAgent}
-              className="btn btn-primary"
-              type="button"
-            >
-              Generate Burner Agent
-            </button>
+            <div className="step-actions">
+              <button
+                disabled={loading || burnerFunding || agents.length > 0}
+                onClick={generateBurnerAgent}
+                className="btn btn-primary"
+                type="button"
+              >
+                Generate Burner Agent
+              </button>
+              <button
+                disabled={loading || burnerFunding || agents.length === 0 || !walletAccount}
+                onClick={fundActiveBurnerAgent}
+                className="btn"
+                type="button"
+              >
+                {burnerFunding ? 'Funding...' : 'Fund Burner'}
+              </button>
+            </div>
           </div>
           <p className="mono-note">
             Burner agent key is used as `agent_key` public input. Only one burner agent is allowed.
+            {' '}
+            Funding is manual via `Fund Burner`.
           </p>
           <div className="agents-list">
             {agents.map((agent) => {
@@ -637,7 +743,12 @@ function App() {
                 ))}
               </select>
             </label>
-            <button className="btn btn-primary" type="button" disabled={loading} onClick={runProofPipeline}>
+            <button
+              className="btn btn-primary"
+              type="button"
+              disabled={loading || !walletAccount}
+              onClick={runProofPipeline}
+            >
               {loading ? 'Generating proof...' : 'Issue Delegation + Proof Package'}
             </button>
           </div>
