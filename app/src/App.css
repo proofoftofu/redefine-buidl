@@ -318,6 +318,10 @@ select {
   text-overflow: ellipsis;
 }
 
+.agent-key-spaced {
+  margin-bottom: 8px;
+}
+
 .status {
   border-radius: 999px;
   border: 1px solid var(--line-soft);

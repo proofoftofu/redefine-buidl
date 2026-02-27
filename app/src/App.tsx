@@ -562,6 +562,10 @@ function App() {
 
   const runProofPipeline = async () => {
     logEvent('debug', 'runProofPipeline started');
+    if (!wallet) {
+      logEvent('rejected', 'issue failed: connect Ready wallet first');
+      return;
+    }
     if (!activeAgent) {
       logEvent('rejected', 'delegate failed: generate burner agent first');
       return;
@@ -763,25 +767,29 @@ function App() {
           <div className="card-head">
             <h2>Issuer Credential Vault</h2>
           </div>
-          <div className="credential-cards">
-            {CREDENTIALS.map((cred) => (
-              <article key={cred.id} className="credential-card">
-                <p className="credential-title">VERIFIABLE CREDENTIAL</p>
-                <p className="credential-id">{truncateMiddle(cred.vcId, 22, 12)}</p>
-                <div className="credential-meta">
-                  <span>type: {cred.vcType.join(', ')}</span>
-                  <span>issuer: {cred.issuer}</span>
-                  <span>subject: {cred.subject}</span>
-                  <span>issuanceDate: {cred.issuanceDate}</span>
-                  <span>expirationDate: {cred.expirationDate}</span>
-                </div>
-                <div className="credential-foot">
-                  <span className="credential-tag">{cred.proofType}</span>
-                  <span className="credential-tag">{cred.status}</span>
-                </div>
-              </article>
-            ))}
-          </div>
+          {wallet ? (
+            <div className="credential-cards">
+              {CREDENTIALS.map((cred) => (
+                <article key={cred.id} className="credential-card">
+                  <p className="credential-title">VERIFIABLE CREDENTIAL</p>
+                  <p className="credential-id">{truncateMiddle(cred.vcId, 22, 12)}</p>
+                  <div className="credential-meta">
+                    <span>type: {cred.vcType.join(', ')}</span>
+                    <span>issuer: {cred.issuer}</span>
+                    <span>subject: {cred.subject}</span>
+                    <span>issuanceDate: {cred.issuanceDate}</span>
+                    <span>expirationDate: {cred.expirationDate}</span>
+                  </div>
+                  <div className="credential-foot">
+                    <span className="credential-tag">{cred.proofType}</span>
+                    <span className="credential-tag">{cred.status}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="mono-note">Connect Ready Wallet to load your assigned VC.</p>
+          )}
         </section>
 
         <section className="card card-agents">
@@ -818,7 +826,7 @@ function App() {
                     <p className="agent-title">{agent.label}</p>
                     <p className="agent-key">pubkey: {truncateMiddle(agent.pubkey)}</p>
                     <p className="agent-key">wallet: {truncateMiddle(agent.walletAddress)}</p>
-                    <p className="agent-key">deployed: {agent.deployed ? 'yes' : 'no'}</p>
+                    <p className="agent-key agent-key-spaced">deployed: {agent.deployed ? 'yes' : 'no'}</p>
                     <div className="agent-actions">
                       <button
                         disabled={loading || burnerFunding || agents.length > 0}
@@ -906,7 +914,7 @@ function App() {
               <button
                 className="btn btn-primary"
                 type="button"
-                disabled={loading || Boolean(lastDelegation?.issued)}
+                disabled={loading || Boolean(lastDelegation?.issued) || !wallet}
                 onClick={runProofPipeline}
               >
                 {loading ? 'Generating...' : 'Issue'}
