@@ -1,93 +1,38 @@
 # zk-agent-auth root app
 
-This root workspace now combines:
-- `circuit/` from `prototypes/noir/delegation_proof`
-- `contracts/` from `prototypes/scaffold-garaga` plus app contracts:
-  - `noir_verifier_adapter`
-  - `zk_agent_auth_verifier`
-- `app/` from `prototypes/scaffold-garaga/app` with `zk-agent-auth-dashboard` frontend design and integrated proof flow
+## Live App
 
-## Project layout
+https://redefine-buidl.vercel.app/
 
-- `app/`: Vite + React dashboard UI that generates Noir proofs in-browser and verifies them on Starknet
-- `circuit/`: delegation proof Noir circuit
-- `contracts/verifier/`: Garaga-generated UltraHonk verifier
-- `contracts/noir_verifier_adapter/`: adapter exposing `verify(proof, public_inputs) -> bool`
-- `contracts/zk_agent_auth_verifier/`: app contract with nullifier replay protection and `verify_and_consume`
+## Demo
 
-## Run end-to-end
+TBD
 
-1. Install dependencies/tools (one-time):
-```sh
-make install-bun
-make install-noir
-make install-barretenberg
-make install-starknet
-make install-devnet
-make install-garaga
-```
+## Description
 
-2. Build circuit, witness, vk, and contracts:
-```sh
-make build-circuit
-make exec-circuit
-make gen-vk
-make gen-verifier
-make build-contracts
-```
+Anonymous AI Agent Credentials is a privacy-first identity layer for Starknet AI agents.
 
-3. Start devnet in another terminal:
-```sh
-make devnet
-```
+It addresses a core problem: most AI agents can execute actions, but they do not carry a portable, verifiable identity. Without identity, contracts cannot reliably gate access for specific agent capabilities.
 
-4. Prepare accounts and deploy contracts (new terminal):
-```sh
-make accounts-file
+This project combines W3C Verifiable Credential concepts with zero-knowledge proofs so agents can prove policy compliance without exposing sensitive attributes. The result is private, composable, on-chain authorization for autonomous agents.
 
-make declare-verifier
-# export VERIFIER_CLASS_HASH=0x... from command output
-make deploy-verifier
-# export VERIFIER_CONTRACT_ADDRESS=0x... from command output
+## How it works
 
-make declare-noir-adapter
-# export NOIR_ADAPTER_CLASS_HASH=0x...
-make deploy-noir-adapter
-# export NOIR_ADAPTER_CONTRACT_ADDRESS=0x...
+1. Connect wallet and prepare agent
+A user connects a Starknet wallet (Ready / Argent) and generates a local burner agent identity. The burner account is funded and deployed for autonomous execution.
 
-make declare-zk-auth
-# export ZK_AUTH_CLASS_HASH=0x...
-make deploy-zk-auth
-```
+2. Build an off-chain delegation package
+The app prepares VC-derived inputs and generates a zero-knowledge proof package off-chain. Private attributes stay private; only required public inputs are exposed.
 
-5. Copy generated artifacts to frontend:
-```sh
-make artifacts
-```
+3. Prove policy compliance in ZK
+The circuit (built in Noir) proves that policy conditions are satisfied (for example membership/age/expiry constraints), issuer signature relation is valid for the credential commitment, and nullifier is correctly derived and bound to agent + scope.
 
-6. Configure app env:
-```sh
-cp app/.env.example app/.env
-```
-Set:
-- `VITE_STARKNET_RPC_URL`
-- `VITE_VERIFIER_CONTRACT_ADDRESS` (fallback stateless verifier)
-- `VITE_ZK_AGENT_AUTH_CONTRACT_ADDRESS` (recommended app contract)
-- `VITE_FEE_TOKEN_ADDRESS` (ERC20 token used to fund burner account)
-- `VITE_BURNER_FUND_WEI` (funding amount sent from connected wallet)
+4. Verify and consume on-chain
+The burner agent submits `verify_and_consume` to the auth verifier contract on Starknet. The contract enforces replay protection via nullifier checks, matches the day against on-chain block time, and requires the underlying proof verification to pass. On success, nullifier is consumed and the protected action is authorized.
 
-7. Run frontend:
-```sh
-make install-app-deps
-make run-app
-```
+5. Developer stack
+Noir is used for policy logic and private-proof constraints, Garaga is used for Starknet-compatible verifier generation, and Starknet contracts handle verification orchestration and nullifier state.
 
-Open `http://localhost:5173`.
+## Why this matters
 
-## Notes
-
-- `verify_and_consume` enforces `current_day == block_day`, so run proof generation and verification on the same day.
-- The frontend computes valid demo signatures and nullifiers matching the circuit hash logic.
-- If `VITE_ZK_AGENT_AUTH_CONTRACT_ADDRESS` is empty, the app falls back to stateless verification with `UltraKeccakZKHonkVerifier`.
-- Connect a Starknet wallet in the UI to send onchain transactions (`transfer`, `verify_and_consume`).
-- Without a connected wallet, the app uses read-only `call` for verification only.
+This pattern can bridge VC-based identity wallets to AI agents, enabling trusted machine identities that are privacy-preserving, verifiable, and reusable across on-chain applications.
